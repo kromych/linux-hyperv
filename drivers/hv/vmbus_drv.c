@@ -1334,24 +1334,58 @@ static irqreturn_t vmbus_percpu_isr(int irq, void *dev_id)
 	return IRQ_HANDLED;
 }
 
+static void vmbus_percpu_work(struct work_struct *work)
+{
+	unsigned int cpu = smp_processor_id();
+
+	hv_synic_init(cpu);
+}
+
+/*
+ * vmbus_setup_control_plane - Sets up the VMBus control plane:
+ *
+ *	- initialize the synthetic interrupt controller,
+ *	- connect to the VMBus server (might be the host or the paravisor).
+ */
 static int vmbus_setup_control_plane(void)
 {
-	int ret;
-	int hyperv_cpuhp_online;
+	int ret, cpu;
+	struct work_struct __percpu *works;
 
 	ret = hv_synic_alloc();
-	if (ret < 0)
+	if (ret)
 		goto err_alloc;
+
+	works = alloc_percpu(struct work_struct);
+	if (!works) {
+		ret = -ENOMEM;
+		goto err_alloc;
+	}
 
 	/*
 	 * Initialize the per-cpu interrupt state and stimer state.
 	 * Then connect to the host.
 	 */
-	ret = cpuhp_setup_state(CPUHP_AP_ONLINE_DYN, "hyperv/vmbus:online",
-				hv_synic_init, hv_synic_cleanup);
+	cpus_read_lock();
+	for_each_online_cpu(cpu) {
+		struct work_struct *work = per_cpu_ptr(works, cpu);
+
+		INIT_WORK(work, vmbus_percpu_work);
+		schedule_work_on(cpu, work);
+	}
+
+	for_each_online_cpu(cpu)
+		flush_work(per_cpu_ptr(works, cpu));
+
+	/* Register the callbacks for possible CPU online/offline'ing */
+	ret = cpuhp_setup_state_nocalls_cpuslocked(CPUHP_AP_ONLINE_DYN, "hyperv/vmbus:online",
+						   hv_synic_init, hv_synic_cleanup);
+	cpus_read_unlock();
+	free_percpu(works);
 	if (ret < 0)
 		goto err_alloc;
 	hyperv_cpuhp_online = ret;
+
 	ret = vmbus_connect();
 	if (ret)
 		goto err_connect;
@@ -1375,12 +1409,11 @@ err_alloc:
  */
 static int vmbus_bus_init(void)
 {
-	int ret, cpu;
-	struct work_struct __percpu *works;
+	int ret;
 
 	ret = hv_init();
 	if (ret != 0) {
-		pr_err("Unable to initialize the hypervisor - 0x%x\n", ret);
+		pr_err("Unable to connect to the hypervisor - 0x%x\n", ret);
 		return ret;
 	}
 
