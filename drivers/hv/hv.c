@@ -347,7 +347,7 @@ void hv_synic_enable_regs(unsigned int cpu)
 	hv_set_msr(HV_MSR_SIMP, simp.as_uint64);
 
 	/* Setup the Synic's event page with the hypervisor. */
-	siefp.as_uint64 = hv_get_msr(HV_REGISTER_SIEFP);
+	siefp.as_uint64 = hv_get_msr(HV_MSR_SIEFP);
 	siefp.siefp_enabled = 1;
 
 	if (ms_hyperv.paravisor_present || hv_root_partition) {
@@ -383,7 +383,7 @@ void hv_synic_enable_regs(unsigned int cpu)
 #else
 	shared_sint.auto_eoi = 0;
 #endif
-	hv_set_msr(HV_REGISTER_SINT0 + VMBUS_MESSAGE_SINT,
+	hv_set_msr(HV_MSR_SINT0 + VMBUS_MESSAGE_SINT,
 				shared_sint.as_uint64);
 }
 
@@ -515,7 +515,7 @@ void hv_synic_disable_regs(unsigned int cpu)
 		siefp.base_siefp_gpa = 0;
 	}
 
-	hv_set_msr(HV_REGISTER_SIEFP, siefp.as_uint64);
+	hv_set_msr(HV_MSR_SIEFP, siefp.as_uint64);
 }
 
 static void hv_synic_disable_interrupts(void)
@@ -525,7 +525,7 @@ static void hv_synic_disable_interrupts(void)
 	/* Disable the global synic bit */
 	sctrl.as_uint64 = hv_get_msr(HV_MSR_SCONTROL);
 	sctrl.enable = 0;
-	hv_set_msr(HV_REGISTER_SCONTROL, sctrl.as_uint64);
+	hv_set_msr(HV_MSR_SCONTROL, sctrl.as_uint64);
 }
 
 static void hv_vmbus_disable_percpu_interrupts(void)
